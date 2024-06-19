@@ -6,11 +6,8 @@ SHORT_BREAK=5         # Short break duration in minutes
 LONG_BREAK=15         # Long break duration in minutes
 POMODOROS_BEFORE_LONG_BREAK=4
 
-# Unicode tomato emoji
 TOMATO="🍅"
-
-# Path to the icon image
-ICON_PATH="pomodoro.png"  # Replace with the actual path to your icon
+ICON_PATH="pomodoro.png"
 
 # Function to display time countdown
 countdown() {
@@ -66,7 +63,6 @@ send_notification() {
     fi
 }
 
-# Main loop
 pomodoro_count=0
 
 while true; do
