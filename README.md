@@ -1,0 +1,2 @@
+# pomodorino
+Pomodoro CLI
