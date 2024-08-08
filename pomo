@@ -4,82 +4,80 @@
 POMODORO_DURATION=25  # Pomodoro work duration in minutes
 SHORT_BREAK=5         # Short break duration in minutes
 LONG_BREAK=15         # Long break duration in minutes
-POMODOROS_BEFORE_LONG_BREAK=4
 
 TOMATO="🍅"
-ICON_PATH="pomodoro.png"
 
-# Function to display time countdown
+# Initialize variables
+TIME_REMAINING=$((POMODORO_DURATION * 60))
+PAUSED=0
+RUNNING=0
+
+# Function to display the timer
+display_timer() {
+    clear
+    local mins=$((TIME_REMAINING / 60))
+    local secs=$((TIME_REMAINING % 60))
+    echo -e "\n$message\n\nTime remaining: $(printf "%02d:%02d" $mins $secs)"
+    echo -e "\nPress 'p' to pause, 'r' to resume, 'q' to quit."
+}
+
+# Function to countdown
 countdown() {
     local duration=$1
-    local message=$2
-    local end=$((SECONDS + duration * 60))
-    local paused=0
-    local remaining=$((duration * 60))
+    message=$2
+    TIME_REMAINING=$((duration * 60))
+    RUNNING=1
 
-    trap 'paused=1' SIGINT
-
-    #Ctrl+c to pause
-    printf "\nPress Ctrl+c to Pause...\n"
-
-    while [ $remaining -gt 0 ]; do
-        if [ $paused -eq 1 ]; then
-            printf "\nPaused. Press 'p' to resume or 'q'/'ESC' to quit...\n"
-            while true; do
-                read -rsn1 key
-                if [ "$key" == "p" ]; then
-                    printf "Resuming...\n"
-                    paused=0
-                    break
-                elif [[ "$key" == $'\e' || "$key" == "q" ]]; then
-                    printf "\nExiting...\n"
-                    exit 0
-                fi
-            done
+    while [ $TIME_REMAINING -gt 0 ]; do
+        if [ $PAUSED -eq 0 ] && [ $RUNNING -eq 1 ]; then
+            display_timer
+            sleep 1
+            TIME_REMAINING=$((TIME_REMAINING - 1))
         fi
 
-        printf "\r$TOMATO - %s - %02d:%02d remaining" "$message" $((remaining / 60)) $((remaining % 60))
         read -rsn1 -t 1 key
-        if [[ "$key" == $'\e' || "$key" == "q" ]]; then
-            printf "\nExiting...\n"
+        if [[ "$key" == "p" ]]; then
+            PAUSED=1
+            RUNNING=0
+            clear
+            echo -e "\nPaused. Press 'r' to resume or 'q' to quit."
+        elif [[ "$key" == "r" ]]; then
+            PAUSED=0
+            RUNNING=1
+            display_timer
+        elif [[ "$key" == "q" ]]; then
+            clear
+            echo "Exiting..."
             exit 0
         fi
-        remaining=$((remaining - 1))
     done
-    echo ""
 }
 
-# Function to send notifications
-send_notification() {
-    local title=$1
-    local message=$2
-
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        # macOS notification
-        osascript -e "display notification \"$message\" with title \"$title\" subtitle \"\" sound name \"default\""
-    elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
-        # Linux notification
-        notify-send -i "$ICON_PATH" "$title" "$message"
-    fi
-}
-
-pomodoro_count=0
-
+# Main loop
 while true; do
-    # Pomodoro session
-    send_notification "Pomodoro Timer" "Work session started"
-    countdown $POMODORO_DURATION "Work session"
-    ((pomodoro_count++))
-    send_notification "Pomodoro Timer" "Pomodoro complete! Total: $TOMATO $pomodoro_count"
-    echo "Pomodoro complete! Total: $TOMATO $pomodoro_count"
-    
-    if ((pomodoro_count % POMODOROS_BEFORE_LONG_BREAK == 0)); then
-        # Long break
-        send_notification "Pomodoro Timer" "Long break started"
-        countdown $LONG_BREAK "Long break"
-    else
-        # Short break
-        send_notification "Pomodoro Timer" "Short break started"
-        countdown $SHORT_BREAK "Short break"
-    fi
+    clear
+    echo -e "Pomodoro Timer $TOMATO\n"
+    echo "1) Start Pomodoro"
+    echo "2) Short Break"
+    echo "3) Long Break"
+    echo "4) Exit"
+    echo -n "Choose an option: "
+    read -rsn1 choice
+
+    case $choice in
+        1)
+            countdown $POMODORO_DURATION "Work session"
+            ;;
+        2)
+            countdown $SHORT_BREAK "Short break"
+            ;;
+        3)
+            countdown $LONG_BREAK "Long break"
+            ;;
+        4)
+            clear
+            echo "Exiting..."
+            exit 0
+            ;;
+    esac
 done
