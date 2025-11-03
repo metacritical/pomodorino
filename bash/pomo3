@@ -1,0 +1,67 @@
+#!/bin/bash
+
+POMODORO_DURATION=25
+SHORT_BREAK=5
+LONG_BREAK=15
+POMODOROS_BEFORE_LONG_BREAK=4
+
+TOMATO="🍅"
+ICON_PATH="/path/to/icon.png"
+pomodoro_count=0
+
+# Function to send notifications
+send_notification() {
+    local title=$1
+    local message=$2
+    osascript -e "display notification \"$message\" with title \"$title\""
+}
+
+# Function to start a Pomodoro
+start_pomodoro() {
+    send_notification "Pomodoro Timer" "Work session started"
+    countdown $POMODORO_DURATION "Work session"
+    ((pomodoro_count++))
+    send_notification "Pomodoro Timer" "Pomodoro complete! Total: $TOMATO $pomodoro_count"
+    if ((pomodoro_count % POMODOROS_BEFORE_LONG_BREAK == 0)); then
+        start_long_break
+    else
+        start_short_break
+    fi
+}
+
+# Function to start a short break
+start_short_break() {
+    send_notification "Pomodoro Timer" "Short break started"
+    countdown $SHORT_BREAK "Short break"
+}
+
+# Function to start a long break
+start_long_break() {
+    send_notification "Pomodoro Timer" "Long break started"
+    countdown $LONG_BREAK "Long break"
+}
+
+# Function to quit the application
+quit_app() {
+    send_notification "Pomodoro Timer" "Exiting..."
+    exit 0
+}
+
+# Main loop to handle menu selection
+while true; do
+    choice=$(osascript -e 'tell app "System Events" to display dialog "Choose an option" buttons {"Start Pomodoro", "Quit"} default button 1')
+    case "$choice" in
+        "button returned:Start Pomodoro")
+            start_pomodoro
+            ;;
+        "button returned:Short Break")
+            start_short_break
+            ;;
+        "button returned:Long Break")
+            start_long_break
+            ;;
+        "button returned:Quit")
+            quit_app
+            ;;
+    esac
+done

@@ -1,0 +1,3 @@
+('/Users/pankajdoharey/Development/Projects/pomodorino/build/Pomodoro '
+ 'Timer/PYZ-00.pyz',
+ [])

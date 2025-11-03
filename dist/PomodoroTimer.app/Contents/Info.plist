@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDisplayName</key>
+	<string>PomodoroTimer</string>
+	<key>CFBundleExecutable</key>
+	<string>Pomodoro Timer</string>
+	<key>CFBundleIconFile</key>
+	<string>generated-bdb893e2e4ce3a41bbb86675ed8311c6b2edf3e969dcd3289002b80e0cd544bd.icns</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.pomodorino.timer</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>PomodoroTimer</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.0.0</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+</dict>
+</plist>
