@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-set -euo pipefail
+# be strict but do not exit on non-zero to keep interactive flows alive
+set -uo pipefail
 
 # --- Config & Paths ---
 APP_NAME="Pomodoro Timer"
@@ -259,7 +260,7 @@ resume_session_if_any() {
 # --- Menus ---
 tasks_menu() {
   while true; do
-    clear
+    clear || true
     print_tasks
     echo -e "\nTasks menu:\n 1) Add task\n 2) Mark done\n 3) Cancel task\n 4) Delete task\n 5) Back"
     read -rp "Choose: " c || true
@@ -276,7 +277,7 @@ tasks_menu() {
 main_menu() {
   load_tasks; load_state
   while true; do
-    clear
+    clear || true
     echo -e "$APP_NAME $TOMATO\n"
     print_tasks
     echo -e "\nMenu:\n 1) Start Pomodoro\n 2) Short Break\n 3) Long Break\n 4) Manage Tasks\n 5) Resume Session\n 6) Exit"
