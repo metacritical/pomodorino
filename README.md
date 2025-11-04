@@ -1,11 +1,13 @@
 # Pomodorino 🍅
 
-Desktop Pomodoro timer built with Python + PyQt5 for macOS (works cross‑platform for notifications). Comes with a fast macOS .app bundle and a clean system‑theme UI with colorful Start/Pause/Resume/Reset buttons.
+Desktop Pomodoro timer built with Python + PyQt5 for macOS (works cross‑platform for notifications). Clean, focused UI:
+- Main window uses a single toggle button (Start/Pause/Resume) plus Reset.
+- Fullscreen session view shows large time with Pause and Reset.
 
 ## Quick Start (macOS .app)
 
 - Build the app bundle:
-  - `bin/build_app`
+  - `./build_app`
 - Launch the app:
   - `open dist/PomodoroTimer.app`
 
@@ -24,16 +26,21 @@ If a notifier is not available, the app logs a fallback message.
 ## Development
 
 - Run the Python app directly:
-  - `python3 pomodoro_pyqt.py`
-- Build a dev bundle from spec:
-  - `pyinstaller "Pomodoro Timer.spec"`
+  - `python3 src/pomodoro_pyqt.py`
+  - Or in fullscreen after Start from the main window.
 
 ## Repo Layout
 
-- `pomodoro_pyqt.py` — main PyQt app
-- `bin/build_app` — build script for macOS .app
-- `Pomodoro Timer.spec` — PyInstaller config (fast onedir bundle)
-- `old_archieve/` — older scripts (bash/ruby/AppleScript) kept for reference
+- `src/pomodoro_pyqt.py` — main PyQt app
+- `build_app` — root build script (cleans and builds)
+- `pomodoro.png` — app icon
+- `dist/` and `build/` — build outputs
+
+## Dependencies
+
+- PyInstaller and PyQt5 for building from source.
+- Install with:
+  - `pip install -r requirements.txt`
 
 ## Git Ignore
 

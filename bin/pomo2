@@ -20,6 +20,62 @@ POMODOROS_BEFORE_LONG_BREAK=4
 mkdir -p "$CONFIG_DIR"
 declare -a TASKS=()
 
+# --- Colors ---
+# Basic ANSI colors; fall back to plain if not a TTY
+if [[ -t 1 ]]; then
+  RED=$'\033[31m'
+  GREEN=$'\033[32m'
+  YELLOW=$'\033[33m'
+  BLUE=$'\033[34m'
+  MAGENTA=$'\033[35m'
+  CYAN=$'\033[36m'
+  RESET=$'\033[0m'
+else
+  RED=""; GREEN=""; YELLOW=""; BLUE=""; MAGENTA=""; CYAN=""; RESET=""
+fi
+
+status_tag() {
+  # usage: status_tag LABEL COLOR
+  local label=$1; local color=${2-}
+  printf "[%s%s%s]" "$color" "$label" "$RESET"
+}
+
+mode_tag() {
+  # usage: mode_tag MODE
+  case "$1" in
+    work)  status_tag "Work" "$BLUE" ;;
+    short) status_tag "Short Break" "$CYAN" ;;
+    long)  status_tag "Long Break" "$MAGENTA" ;;
+    *)     status_tag "Session" "$BLUE" ;;
+  esac
+}
+
+# --- Helpers ---
+trim_ws() {
+  local s="${1-}"
+  # trim leading whitespace
+  s="${s#${s%%[!$' \t\r\n']*}}"
+  # trim trailing whitespace
+  s="${s%${s##*[!$' \t\r\n']}}"
+  printf "%s" "$s"
+}
+
+sanitize_tasks() {
+  local cleaned=()
+  for t in "${TASKS[@]:-}"; do
+    [[ -z "$t" ]] && continue
+    local st="${t%%|*}"; local nm="${t#*|}"
+    nm="$(trim_ws "$nm")"
+    [[ -z "$nm" ]] && continue
+    case "$st" in
+      P|D|C) ;;
+      *) st="P";;
+    esac
+    cleaned+=("$st|$nm")
+  done
+  TASKS=("${cleaned[@]:-}")
+}
+
 # --- Tasks persistence ---
 # tasks.txt format: STATUS|TASK NAME
 # STATUS: P=pending, D=done, C=cancelled
@@ -46,7 +102,7 @@ save_tasks() {
 }
 
 print_tasks() {
-  echo "\nTasks:"
+  printf "Tasks:\n"
   local i=1
   for t in "${TASKS[@]:-}"; do
     [[ -z "$t" ]] && continue
@@ -89,8 +145,7 @@ delete_task() {
       ((i++))
     done
     TASKS=("${new[@]:-}")
-    sanitize_tasks; save_tasks
-    echo "Deleted."
+    save_tasks
   else
     echo "Invalid index."
   fi
@@ -101,7 +156,7 @@ mark_done() {
   read -rp "Enter task number to mark done: " idx || return 0
   if [[ "$idx" =~ ^[0-9]+$ ]] && (( idx>=1 && idx<=${#TASKS[@]:-0} )); then
     local entry="${TASKS[idx-1]}"; local name=${entry#*|}
-    TASKS[idx-1]="D|$name"; save_tasks; echo "Marked done."
+    TASKS[idx-1]="D|$name"; save_tasks; printf "Marked done - %s\n" "$(status_tag Done \"$GREEN\")"
   else
     echo "Invalid index."
   fi
@@ -127,11 +182,22 @@ first_pending_index() {
   echo -1
 }
 
+clear_tasklist() {
+  read -rp "Clear ALL tasks and reset state? (y/N): " ans || true
+  if [[ "$ans" =~ ^[Yy]$ ]]; then
+    TASKS=()
+    : > "$TASKS_FILE"
+    clear_state
+    echo "Task list cleared."
+    sleep 1
+  fi
+}
+
 # --- Notifications ---
 notify() {
   local title=$1 msg=$2
   if [[ "$OSTYPE" == darwin* ]]; then
-    osascript -e "display notification \"$msg\" with title \"$title\""
+    osascript -e "display notification \"$msg\" with title \"$title\"" || true
   elif [[ "$OSTYPE" == linux-gnu* ]]; then
     command -v notify-send >/dev/null 2>&1 && notify-send -i "$ICON_PATH" "$title" "$msg" || true
   fi
@@ -169,6 +235,8 @@ load_state() {
 
 clear_state() {
   ACTIVE=0
+  REMAINING=0
+  ACTIVE_TASK_INDEX=-1
   save_state
 }
 
@@ -187,24 +255,57 @@ title_for_mode() {
 countdown_loop() {
   ACTIVE=1; save_state
   while (( REMAINING > 0 )); do
-    printf "\r%s - %s session - %s remaining" "$TOMATO" "$MODE_TITLE" "$(format_mmss "$REMAINING")"
-    read -rsn1 -t 1 key || true
-    if [[ "${key:-}" == "p" ]]; then
-      # pause
+    # Render timer line in place and clear the rest of the line
+    printf "\r\033[K%s - %s - %s remaining" "$TOMATO" "$MODE_TITLE" "$(format_mmss "$REMAINING")"
+
+    # Read a single key with 1s timeout; only act on key if read succeeded
+    key=""
+    if read -rsn1 -t 1 key; then
+      case "$key" in
+        p|$'\e')
+          # Pause (triggered by 'p' or Esc)
+          save_state
+          # Overwrite active line with paused indicator
+          printf "\r\033[K%s - %s - %s remaining - %s %s" \
+            "$TOMATO" "$MODE_TITLE" "$(format_mmss "$REMAINING")" \
+            "$(status_tag Paused \"$RED\")" "$(mode_tag "$MODE")"
+          while true; do
+            read -rsn1 k2
+            if [ "$k2" = "r" ]; then
+              # Flash a yellow [Resume] tag briefly, then redraw normal line
+              printf "\r\033[K%s - %s - %s remaining - %s %s" \
+                "$TOMATO" "$MODE_TITLE" "$(format_mmss "$REMAINING")" \
+                "$(status_tag Resume \"$YELLOW\")" "$(mode_tag "$MODE")"
+              sleep 0.35
+              printf "\r\033[K%s - %s - %s remaining" \
+                "$TOMATO" "$MODE_TITLE" "$(format_mmss "$REMAINING")"
+              break
+            elif [ "$k2" = $'\e' ] || [ "$k2" = "q" ]; then
+              echo
+              save_state
+              return 1
+            fi
+          done
+          # Continue loop without decrementing after resume
+          continue
+          ;;
+        q)
+          echo
+          save_state
+          return 1
+          ;;
+      esac
+      # Any other key pressed while running is ignored
+    else
+      # Timeout (no key): tick the timer
+      REMAINING=$((REMAINING - 1))
       save_state
-      echo -e "\nPaused. Press 'r' to resume, 'q' to quit." >&2
-      while true; do
-        read -rsn1 k2
-        if [[ "$k2" == "r" ]]; then break; fi
-        if [[ "$k2" == $'\e' || "$k2" == "q" ]]; then echo; return 1; fi
-      done
-    elif [[ "${key:-}" == $'\e' || "${key:-}" == "q" ]]; then
-      echo
-      save_state
-      return 1
+      continue
     fi
-    REMAINING=$((REMAINING - 1))
-    save_state
+
+    # If we got here via a keypress that wasn't handled above, just loop
+    # without decrementing to avoid accidental double-handling
+    continue
   done
   echo
   return 0
@@ -216,9 +317,12 @@ start_session() {
   ACTIVE=1
   save_state
   notify "$APP_NAME" "$MODE_TITLE started"
-  # Show header slightly ahead as in spec example (e.g., 24:58 when starting 25:00)
-  local display_rem=$((REMAINING-2)); (( display_rem<0 )) && display_rem=0
-  printf "%s - %s - %s remaining\n" "$TOMATO" "$MODE_TITLE" "$(format_mmss "$display_rem")"
+  # Show instructions first
+  echo "Press 'p' to pause, 'r' to resume, 'q' to quit, 'Esc' for menu."
+  # Show initial timer display with a green [Start] tag
+  printf "%s - %s - %s remaining - %s %s" \
+    "$TOMATO" "$MODE_TITLE" "$(format_mmss "$REMAINING")" \
+    "$(status_tag Start \"$GREEN\")" "$(mode_tag "$MODE")"
   countdown_loop || return 1
   ACTIVE=0; save_state
   return 0
@@ -229,6 +333,7 @@ complete_work_flow() {
   if (( ACTIVE_TASK_INDEX >= 0 && ACTIVE_TASK_INDEX < ${#TASKS[@]} )); then
     local entry="${TASKS[$ACTIVE_TASK_INDEX]}"; local name=${entry#*|}
     TASKS[$ACTIVE_TASK_INDEX]="D|$name"; save_tasks
+    printf "\nCompleted task: %s - %s\n" "$name" "$(status_tag Done \"$GREEN\")"
   fi
   ((POMODORO_COUNT++))
   save_state
@@ -277,14 +382,15 @@ tasks_menu() {
   while true; do
     clear || true
     print_tasks
-    echo -e "\nTasks menu:\n 1) Add task\n 2) Mark done\n 3) Cancel task\n 4) Delete task\n 5) Back"
+    echo -e "\nTasks menu:\n 1) Add task\n 2) Mark done\n 3) Cancel task\n 4) Delete task\n 5) Clear task list\n 6) Back"
     read -rp "Choose: " c || true
     case "$c" in
       1) add_tasks_interactive ;;
       2) mark_done ;;
       3) mark_cancelled ;;
       4) delete_task ;;
-      5) break ;;
+      5) clear_tasklist ;;
+      6) break ;;
     esac
   done
 }
@@ -293,18 +399,56 @@ main_menu() {
   load_tasks; load_state
   while true; do
     clear || true
-    echo -e "$APP_NAME $TOMATO\n"
+    printf "%s %s\n\n" "$APP_NAME" "$TOMATO"
     print_tasks
-    echo -e "\nMenu:\n 1) Start Pomodoro\n 2) Short Break\n 3) Long Break\n 4) Manage Tasks\n 5) Resume Session\n 6) Exit"
+    echo -e "\nMenu:\n 1) Start Pomodoro\n 2) Short Break\n 3) Long Break\n 4) Manage Tasks\n 5) Exit"
     read -rp "Choose an option: " choice || true
     case "$choice" in
       1)
-        load_tasks
+        load_tasks; load_state
+        # If we have saved remaining time, resume it automatically (even if ACTIVE flipped)
+        if (( ${REMAINING:-0} > 0 )); then
+          MODE_TITLE=$(title_for_mode "$MODE")
+          if (( ACTIVE_TASK_INDEX >= 0 && ACTIVE_TASK_INDEX < ${#TASKS[@]:-0} )); then
+            entry="${TASKS[$ACTIVE_TASK_INDEX]}"; name=${entry#*|}
+            printf "Resuming %s %d: %s\n" "$MODE_TITLE" "$((ACTIVE_TASK_INDEX+1))" "$name"
+          else
+            printf "Resuming %s\n" "$MODE_TITLE"
+          fi
+          # Show resume-specific instruction message and start paused
+          echo "Press 'p' to pause, 'r' to resume, 'q' to quit, 'Esc' for menu."
+          printf "%s - %s - %s remaining - %s %s" \
+            "$TOMATO" "$MODE_TITLE" "$(format_mmss "$REMAINING")" \
+            "$(status_tag Paused \"$RED\")" "$(mode_tag "$MODE")"
+          # Wait until user explicitly resumes or exits
+          while true; do
+            read -rsn1 k2
+            if [ "$k2" = "r" ]; then
+              # Flash a yellow [Resume] tag briefly with mode, then redraw normal line
+              printf "\r\033[K%s - %s - %s remaining - %s %s" \
+                "$TOMATO" "$MODE_TITLE" "$(format_mmss "$REMAINING")" \
+                "$(status_tag Resume \"$YELLOW\")" "$(mode_tag "$MODE")"
+              sleep 0.35
+              printf "\r\033[K%s - %s - %s remaining" \
+                "$TOMATO" "$MODE_TITLE" "$(format_mmss "$REMAINING")"
+              break
+            elif [ "$k2" = $'\e' ] || [ "$k2" = "q" ]; then
+              echo
+              read -rp "Press Enter..." _
+              continue 2
+            fi
+          done
+          # Now run the live countdown
+          countdown_loop || true
+          ACTIVE=0; save_state
+          read -rp "Press Enter..." _
+          continue
+        fi
+        # Otherwise ensure there's at least one pending task
         local pending_idx; pending_idx=$(first_pending_index)
         if (( pending_idx == -1 )); then
           echo "No tasks found. Let's add some first."
           add_tasks_interactive
-          # Return to main menu after adding tasks as requested.
           read -rp "Returning to main menu. Press Enter..." _
           continue
         fi
@@ -325,26 +469,12 @@ main_menu() {
         tasks_menu
         ;;
       5)
-        MODE_TITLE=$(title_for_mode "$MODE")
-        resume_session_if_any || { echo "No session to resume."; sleep 1; }
-        ;;
-      6)
+        # Persist current state before exiting
+        save_state
         echo "Goodbye!"; exit 0
         ;;
     esac
   done
 }
-
-# Auto-resume prompt on startup
-load_state
-if [[ -f "$STATE_FILE" && "${ACTIVE:-0}" == "1" && ${REMAINING:-0} -gt 0 ]]; then
-  MODE_TITLE=${MODE_TITLE:-Work}
-  echo "Found paused session: $MODE_TITLE with $(format_mmss "$REMAINING") remaining. Resume? (y/N): "
-  read -r r
-  if [[ "$r" =~ ^[Yy]$ ]]; then
-    countdown_loop || true
-    ACTIVE=0; save_state
-  fi
-fi
 
 main_menu

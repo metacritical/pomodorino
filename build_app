@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Root-level build script for macOS .app via PyInstaller
+# - Cleans previous dist artifacts for repeatable builds
+# - Works regardless of current working directory
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$SCRIPT_DIR"
+cd "$REPO_ROOT"
+
+APP_NAME="PomodoroTimer"
+ICON="pomodoro.png"
+ENTRY="src/pomodoro_pyqt.py"
+
+usage() {
+  cat <<EOF
+Usage: $(basename "$0") [--name NAME] [--icon ICON] [--entry FILE] [--no-clean]
+
+Defaults:
+  --name   $APP_NAME
+  --icon   $ICON
+  --entry  $ENTRY
+
+Examples:
+  $(basename "$0")
+  $(basename "$0") --entry pomodoro_pyqt.py
+EOF
+}
+
+NO_CLEAN=0
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --name) APP_NAME="$2"; shift 2;;
+    --icon) ICON="$2"; shift 2;;
+    --entry) ENTRY="$2"; shift 2;;
+    --no-clean) NO_CLEAN=1; shift;;
+    -h|--help) usage; exit 0;;
+    *) echo "Unknown argument: $1" >&2; usage; exit 1;;
+  esac
+done
+
+if ! command -v pyinstaller >/dev/null 2>&1; then
+  echo "pyinstaller not found. Please install it (e.g. pip install pyinstaller)." >&2
+  exit 1
+fi
+
+if [[ ! -f "$ICON" ]]; then
+  echo "Icon '$ICON' not found in repo root ($REPO_ROOT)." >&2
+  exit 1
+fi
+
+if [[ ! -f "$ENTRY" ]]; then
+  echo "Entry '$ENTRY' not found in repo root ($REPO_ROOT)." >&2
+  exit 1
+fi
+
+echo "Building $APP_NAME.app from $ENTRY..."
+
+if [[ "$NO_CLEAN" -eq 0 ]]; then
+  rm -rf "dist/$APP_NAME" "dist/$APP_NAME.app" build \
+    || true
+fi
+
+pyinstaller \
+  --noconfirm \
+  --windowed \
+  --name "$APP_NAME" \
+  --icon "$ICON" \
+  --add-data "$ICON:." \
+  "$ENTRY"
+
+echo "Build complete. Find the app under dist/$APP_NAME.app"

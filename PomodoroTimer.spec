@@ -2,7 +2,7 @@
 
 
 a = Analysis(
-    ['pomodoro_pyqt.py'],
+    ['src/pomodoro_pyqt.py'],
     pathex=[],
     binaries=[],
     datas=[('pomodoro.png', '.')],
