@@ -5,7 +5,7 @@ a = Analysis(
     ['src/pomodoro_pyqt.py'],
     pathex=[],
     binaries=[],
-    datas=[('pomodoro.png', '.')],
+    datas=[('pomodoro.png', '.'), ('bin/pomo', 'bin')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
