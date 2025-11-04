@@ -6,6 +6,9 @@ Desktop Pomodoro timer built with Python + PyQt5 for macOS (works cross‑platfo
 
 ## Quick Start (macOS .app)
 
+- Download prebuilt app:
+  - Direct zip (0.0.1): https://github.com/metacritical/pomodorino/releases/download/0.0.1/PomodoroTimer-0.0.1.zip
+  - All releases: https://github.com/metacritical/pomodorino/releases
 - Build the app bundle:
   - `./build_app`
 - Launch the app:
