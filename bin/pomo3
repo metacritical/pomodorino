@@ -47,6 +47,19 @@ quit_app() {
     exit 0
 }
 
+# Countdown helper
+countdown() {
+    local duration=$1
+    local message=$2
+    local remaining=$((duration * 60))
+    while [ $remaining -gt 0 ]; do
+        printf "\r$TOMATO - %s - %02d:%02d remaining" "$message" $((remaining / 60)) $((remaining % 60))
+        sleep 1
+        remaining=$((remaining - 1))
+    done
+    echo ""
+}
+
 # Main loop to handle menu selection
 while true; do
     choice=$(osascript -e 'tell app "System Events" to display dialog "Choose an option" buttons {"Start Pomodoro", "Quit"} default button 1')

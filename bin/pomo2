@@ -20,8 +20,8 @@ display_timer() {
     clear
     local mins=$((TIME_REMAINING / 60))
     local secs=$((TIME_REMAINING % 60))
-    echo -e "\\n$message\\n\\nTime remaining: $(printf "%02d:%02d" $mins $secs)"
-    echo -e "\\nPress 'p' to pause, 'r' to resume, 'q' to quit."
+    echo -e "\n$message\n\nTime remaining: $(printf "%02d:%02d" $mins $secs)"
+    echo -e "\nPress 'p' to pause, 'r' to resume, 'q' to quit."
 }
 
 # Function to countdown
@@ -32,28 +32,28 @@ countdown() {
     RUNNING=1
 
     while [ $TIME_REMAINING -gt 0 ]; do
-        if [ $PAUSED -eq 0 ] && [ $RUNNING -eq 1 ]; then
-            display_timer
-            sleep 1
-            TIME_REMAINING=$((TIME_REMAINING - 1))
+        if [ $PAUSED -eq 1 ]; then
+            read -rsn1 key
+            if [ "$key" == "r" ]; then
+                PAUSED=0
+            elif [[ "$key" == $'\e' || "$key" == "q" ]]; then
+                echo "\nExiting..."
+                exit 0
+            fi
+            continue
         fi
 
+        display_timer
         read -rsn1 -t 1 key
-        if [[ "$key" == "p" ]]; then
+        if [ "$key" == "p" ]; then
             PAUSED=1
-            RUNNING=0
-            clear
-            echo -e "\\nPaused. Press 'r' to resume or 'q' to quit."
-        elif [[ "$key" == "r" ]]; then
-            PAUSED=0
-            RUNNING=1
-            display_timer
-        elif [[ "$key" == "q" ]]; then
-            clear
-            echo "Exiting..."
+        elif [[ "$key" == $'\e' || "$key" == "q" ]]; then
+            echo "\nExiting..."
             exit 0
         fi
+        TIME_REMAINING=$((TIME_REMAINING - 1))
     done
+    RUNNING=0
 }
 
 # Function to send notifications
@@ -73,7 +73,7 @@ send_notification() {
 # Main loop with a starting menu
 while true; do
     clear
-    echo -e "Pomodoro Timer $TOMATO\\n"
+    echo -e "Pomodoro Timer $TOMATO\n"
     echo "1) Start Pomodoro"
     echo "2) Short Break"
     echo "3) Long Break"
