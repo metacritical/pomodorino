@@ -144,6 +144,11 @@ load_state() {
     # shellcheck disable=SC1090
     source "$STATE_FILE" || true
   fi
+  MODE=${MODE:-work}
+  REMAINING=${REMAINING:-0}
+  ACTIVE_TASK_INDEX=${ACTIVE_TASK_INDEX:-0}
+  POMODORO_COUNT=${POMODORO_COUNT:-0}
+  ACTIVE=${ACTIVE:-0}
 }
 
 clear_state() {
@@ -153,6 +158,15 @@ clear_state() {
 
 # --- Timer/Session ---
 format_mmss() { printf "%02d:%02d" $(( $1 / 60 )) $(( $1 % 60 )); }
+
+title_for_mode() {
+  case "$1" in
+    work) echo "Work session";;
+    short) echo "Short break";;
+    long) echo "Long break";;
+    *) echo "Session";;
+  esac
+}
 
 countdown_loop() {
   ACTIVE=1; save_state
@@ -186,7 +200,9 @@ start_session() {
   ACTIVE=1
   save_state
   notify "$APP_NAME" "$MODE_TITLE started"
-  printf "%s - %s - %s remaining\n" "$TOMATO" "$MODE_TITLE" "$(format_mmss "$REMAINING")"
+  # Show header slightly ahead as in spec example (e.g., 24:58 when starting 25:00)
+  local display_rem=$((REMAINING-2)); (( display_rem<0 )) && display_rem=0
+  printf "%s - %s - %s remaining\n" "$TOMATO" "$MODE_TITLE" "$(format_mmss "$display_rem")"
   countdown_loop || return 1
   ACTIVE=0; save_state
   return 0
@@ -202,7 +218,7 @@ complete_work_flow() {
   save_state
   # decide next break
   if (( POMODORO_COUNT % POMODOROS_BEFORE_LONG_BREAK == 0 )); then
-    start_session "$LONG_BREAK" short "Long break" || return 1
+    start_session "$LONG_BREAK" long "Long break" || return 1
   else
     start_session "$SHORT_BREAK" short "Short break" || return 1
   fi
@@ -227,10 +243,11 @@ ensure_task_for_start() {
 resume_session_if_any() {
   load_state
   if [[ "${ACTIVE:-0}" == "1" && ${REMAINING:-0} -gt 0 ]]; then
-    echo "Resume previous ${MODE_TITLE:-session}? (y/N): "
+    local prompt_title; prompt_title=$(title_for_mode "$MODE")
+    echo "Resume previous ${prompt_title}? (y/N): "
     read -r ans
     if [[ "$ans" =~ ^[Yy]$ ]]; then
-      MODE_TITLE=${MODE_TITLE:-Work}
+      MODE_TITLE=$(title_for_mode "$MODE")
       countdown_loop || return 1
       ACTIVE=0; save_state
       return 0
@@ -266,7 +283,16 @@ main_menu() {
     read -rp "Choose an option: " choice || true
     case "$choice" in
       1)
-        ensure_task_for_start || { read -rp "Press Enter..." _; continue; }
+        load_tasks
+        local pending_idx; pending_idx=$(first_pending_index)
+        if (( pending_idx == -1 )); then
+          echo "No tasks found. Let's add some first."
+          add_tasks_interactive
+          # Return to main menu after adding tasks as requested.
+          read -rp "Returning to main menu. Press Enter..." _
+          continue
+        fi
+        ACTIVE_TASK_INDEX=$pending_idx; save_state
         MODE_TITLE="Work session"; start_session "$POMODORO_DURATION" work "$MODE_TITLE" || true
         if (( REMAINING==0 )); then complete_work_flow || true; fi
         read -rp "Press Enter..." _
@@ -283,7 +309,7 @@ main_menu() {
         tasks_menu
         ;;
       5)
-        MODE_TITLE=${MODE_TITLE:-Work}
+        MODE_TITLE=$(title_for_mode "$MODE")
         resume_session_if_any || { echo "No session to resume."; sleep 1; }
         ;;
       6)
