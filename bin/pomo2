@@ -18,6 +18,7 @@ LONG_BREAK=15
 POMODOROS_BEFORE_LONG_BREAK=4
 
 mkdir -p "$CONFIG_DIR"
+declare -a TASKS=()
 
 # --- Tasks persistence ---
 # tasks.txt format: STATUS|TASK NAME
@@ -31,12 +32,16 @@ load_tasks() {
       TASKS+=("$line")
     done < "$TASKS_FILE"
   fi
+  sanitize_tasks
 }
 
 save_tasks() {
   : > "$TASKS_FILE"
   for t in "${TASKS[@]:-}"; do
-    echo "$t" >> "$TASKS_FILE"
+    [[ -z "$t" ]] && continue
+    local st="${t%%|*}"; local nm="${t#*|}"
+    [[ -z "$nm" ]] && continue
+    echo "$st|$nm" >> "$TASKS_FILE"
   done
 }
 
@@ -44,8 +49,10 @@ print_tasks() {
   echo "\nTasks:"
   local i=1
   for t in "${TASKS[@]:-}"; do
+    [[ -z "$t" ]] && continue
     local status=${t%%|*}
     local name=${t#*|}
+    [[ -z "$name" ]] && continue
     local marker="[ ]"
     if [[ "$status" == "D" ]]; then marker="[✓]"; fi
     if [[ "$status" == "C" ]]; then marker="[ ] cancelled:"; fi
@@ -61,21 +68,28 @@ add_tasks_interactive() {
     if [[ -z "$name" ]]; then
       break
     fi
+    name="$(trim_ws "$name")"
+    [[ -z "$name" ]] && continue
     TASKS+=("P|$name")
     save_tasks
     read -rp "Add another? (y/N): " ans || true
     [[ "$ans" =~ ^[Yy]$ ]] || break
   done
+  sanitize_tasks; save_tasks
 }
 
 delete_task() {
   print_tasks
   read -rp "Enter task number to delete: " idx || return 0
-  if [[ "$idx" =~ ^[0-9]+$ ]] && (( idx>=1 && idx<=${#TASKS[@]} )); then
-    unset 'TASKS[idx-1]'
-    # compact array
-    TASKS=("${TASKS[@]}")
-    save_tasks
+  if [[ "$idx" =~ ^[0-9]+$ ]] && (( idx>=1 && idx<=${#TASKS[@]:-0} )); then
+    local new=()
+    local i=1
+    for entry in "${TASKS[@]:-}"; do
+      if (( i != idx )); then new+=("$entry"); fi
+      ((i++))
+    done
+    TASKS=("${new[@]:-}")
+    sanitize_tasks; save_tasks
     echo "Deleted."
   else
     echo "Invalid index."
@@ -85,7 +99,7 @@ delete_task() {
 mark_done() {
   print_tasks
   read -rp "Enter task number to mark done: " idx || return 0
-  if [[ "$idx" =~ ^[0-9]+$ ]] && (( idx>=1 && idx<=${#TASKS[@]} )); then
+  if [[ "$idx" =~ ^[0-9]+$ ]] && (( idx>=1 && idx<=${#TASKS[@]:-0} )); then
     local entry="${TASKS[idx-1]}"; local name=${entry#*|}
     TASKS[idx-1]="D|$name"; save_tasks; echo "Marked done."
   else
@@ -96,7 +110,7 @@ mark_done() {
 mark_cancelled() {
   print_tasks
   read -rp "Enter task number to cancel: " idx || return 0
-  if [[ "$idx" =~ ^[0-9]+$ ]] && (( idx>=1 && idx<=${#TASKS[@]} )); then
+  if [[ "$idx" =~ ^[0-9]+$ ]] && (( idx>=1 && idx<=${#TASKS[@]:-0} )); then
     local entry="${TASKS[idx-1]}"; local name=${entry#*|}
     TASKS[idx-1]="C|$name"; save_tasks; echo "Cancelled."
   else
@@ -105,9 +119,10 @@ mark_cancelled() {
 }
 
 first_pending_index() {
-  local i
-  for ((i=0; i<${#TASKS[@]}; i++)); do
-    [[ "${TASKS[$i]%%|*}" == "P" ]] && { echo "$i"; return; }
+  local i=0
+  for entry in "${TASKS[@]:-}"; do
+    if [[ "${entry%%|*}" == "P" ]]; then echo "$i"; return; fi
+    ((i++))
   done
   echo -1
 }
