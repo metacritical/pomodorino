@@ -14,6 +14,12 @@ Desktop Pomodoro timer built with Python + PyQt5 for macOS (works cross‑platfo
 - Launch the app:
   - `open dist/PomodoroTimer.app`
 
+CLI companion
+- The UI automatically installs a terminal CLI `pomo` into `~/.local/bin/pomo` on first run (best‑effort; no sudo required).
+- Ensure `~/.local/bin` is on your `PATH` to use it:
+  - `echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc`
+  - Then run `pomo` in a terminal.
+
 Notes
 - The app runs with a menu‑bar tray icon. Close hides to tray; use the tray to Show or Quit.
 - No external dependencies required for the bundled app.
@@ -38,6 +44,12 @@ If a notifier is not available, the app logs a fallback message.
 - `build_app` — root build script (cleans and builds)
 - `pomodoro.png` — app icon
 - `dist/` and `build/` — build outputs
+
+## Data Location
+
+- Both the UI and CLI share state and tasks under `~/.config/pomo/` (XDG‑compliant):
+  - `tasks.txt` stores tasks as `STATUS|TASK` lines where `STATUS` is `P` (pending), `D` (done), or `C` (cancelled).
+  - `state` stores timer state (mode, remaining seconds, selected task index, pomodoro count, activity flag).
 
 ## Dependencies
 

@@ -15,6 +15,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QLabel, QPushBu
 from PyQt5.QtCore import QTimer, QThread, pyqtSignal, Qt
 from PyQt5.QtGui import QFont, QIcon, QPixmap, QPainter, QBrush, QColor
 import subprocess
+import shutil
 
 
 class TimerThread(QThread):
@@ -73,8 +74,16 @@ class PomodoroApp(QMainWindow):
         self.timer_running = False
         self.is_fullscreen = False
 
-        # Task management
+        # Config/State paths (XDG compliant)
+        xdg_home = os.environ.get('XDG_CONFIG_HOME', os.path.expanduser('~/.config'))
+        self.CONFIG_DIR = os.path.join(xdg_home, 'pomo')
+        self.TASKS_FILE = os.path.join(self.CONFIG_DIR, 'tasks.txt')
+        self.STATE_FILE = os.path.join(self.CONFIG_DIR, 'state')
+        os.makedirs(self.CONFIG_DIR, exist_ok=True)
+
+        # Task management (strings like "STATUS|NAME")
         self.tasks = []
+        self.active_task_index = -1
 
         # Store references to fullscreen widgets
         self.fs_time_label = None
@@ -86,8 +95,20 @@ class PomodoroApp(QMainWindow):
         # Set up the UI
         self.init_ui()
 
+        # Prepare storage + load state/tasks
+        self.load_tasks_file()
+        self.load_state_file()
+        self.update_task_list()
+        self.update_display()
+
         # Create the system tray icon
         self.create_system_tray()
+
+        # Ensure CLI tool is installed for terminal usage
+        try:
+            self.ensure_terminal_cli_installed()
+        except Exception:
+            pass
 
         # Ensure resources are cleaned up on app quit
         app = QApplication.instance()
@@ -242,6 +263,31 @@ class PomodoroApp(QMainWindow):
             return os.path.join(base_path, relative_path)
         return os.path.join(os.path.dirname(os.path.abspath(__file__)), relative_path)
 
+    def ensure_terminal_cli_installed(self):
+        """Install the terminal CLI script to ~/.local/bin/pomo if missing."""
+        target_dir = os.path.expanduser('~/.local/bin')
+        os.makedirs(target_dir, exist_ok=True)
+        target_path = os.path.join(target_dir, 'pomo')
+
+        # Source within app bundle resources or repo
+        src_path = self._resource_path(os.path.join('bin', 'pomo'))
+        if not os.path.exists(src_path):
+            return
+
+        # If target not present or empty, copy fresh
+        try:
+            if (not os.path.exists(target_path)) or (os.path.getsize(target_path) == 0):
+                shutil.copyfile(src_path, target_path)
+                os.chmod(target_path, 0o755)
+                return
+            # If present, try to update if sizes differ
+            if os.path.getsize(src_path) != os.path.getsize(target_path):
+                shutil.copyfile(src_path, target_path)
+                os.chmod(target_path, 0o755)
+        except Exception:
+            # Best-effort only; ignore failures silently
+            pass
+
     def create_system_tray(self):
         """Create system tray icon and menu"""
         from PyQt5.QtCore import QTimer
@@ -302,6 +348,12 @@ class PomodoroApp(QMainWindow):
         else:
             status = "Pomodoro Timer - Ready"
         self.tray_icon.setToolTip(status)
+
+        # Persist state on tooltip update while running to keep REMAINING fresh
+        try:
+            self.save_state_file()
+        except Exception:
+            pass
 
     def on_primary_button_clicked(self):
         """Handle Start/Pause/Resume with a single button in normal view"""
@@ -379,6 +431,10 @@ class PomodoroApp(QMainWindow):
             self.remaining_time = self.LONG_BREAK
 
         self.update_display()
+        try:
+            self.save_state_file()
+        except Exception:
+            pass
 
     def start_timer(self):
         """Start the timer and go fullscreen"""
@@ -406,6 +462,10 @@ class PomodoroApp(QMainWindow):
 
             # Update tray
             self.update_tray_tooltip()
+            try:
+                self.save_state_file()
+            except Exception:
+                pass
         else:
             self.reset_timer()
             return self.start_timer()
@@ -539,11 +599,19 @@ class PomodoroApp(QMainWindow):
         """Pause in normal view (no-op UI updates since only two buttons)"""
         if self.timer_thread and self.timer_thread.running:
             self.timer_thread.pause()
+            try:
+                self.save_state_file()
+            except Exception:
+                pass
 
     def resume_timer(self):
         """Resume in normal view (no-op UI updates since only two buttons)"""
         if self.timer_thread and not self.timer_thread.running:
             self.timer_thread.resume()
+            try:
+                self.save_state_file()
+            except Exception:
+                pass
 
     def reset_timer(self):
         """Reset the timer"""
@@ -569,6 +637,10 @@ class PomodoroApp(QMainWindow):
         self.restore_normal_ui()
         self.update_display()
         self.update_tray_tooltip()
+        try:
+            self.save_state_file()
+        except Exception:
+            pass
 
     def restore_normal_ui(self):
         """Restore the original normal UI"""
@@ -693,6 +765,10 @@ class PomodoroApp(QMainWindow):
                 self.fs_time_label.setText(self.format_time(self.remaining_time))
                 self.fs_count_label.setText(f"Sessions completed: {self.pomodoro_count} 🍅")
         self.update_tray_tooltip()
+        try:
+            self.save_state_file()
+        except Exception:
+            pass
 
     def update_display(self):
         """Update display elements"""
@@ -793,23 +869,31 @@ class PomodoroApp(QMainWindow):
         self.restore_normal_ui()
         self.update_display()
         self.update_tray_tooltip()
+        try:
+            self.save_state_file()
+        except Exception:
+            pass
 
     def add_task(self):
         """Add a new task"""
         text, ok = QInputDialog.getText(self, 'Add Task', 'Enter task:')
         if ok and text:
-            self.tasks.append(text)
+            self.tasks.append(f"P|{text}")
             self.update_task_list()
+            self.save_tasks_file()
 
     def edit_task(self):
         """Edit the selected task"""
         current_row = self.task_list.currentRow()
         if current_row >= 0:
             current_task = self.tasks[current_row]
-            text, ok = QInputDialog.getText(self, 'Edit Task', 'Edit task:', text=current_task)
+            existing_name = current_task.split('|', 1)[1] if '|' in current_task else current_task
+            text, ok = QInputDialog.getText(self, 'Edit Task', 'Edit task:', text=existing_name)
             if ok and text:
-                self.tasks[current_row] = text
+                status = current_task.split('|', 1)[0] if '|' in current_task else 'P'
+                self.tasks[current_row] = f"{status}|{text}"
                 self.update_task_list()
+                self.save_tasks_file()
 
     def delete_task(self):
         """Delete the selected task"""
@@ -817,13 +901,105 @@ class PomodoroApp(QMainWindow):
         if current_row >= 0:
             self.tasks.pop(current_row)
             self.update_task_list()
+            self.save_tasks_file()
 
     def update_task_list(self):
         """Update the task list UI"""
         self.task_list.clear()
         for task in self.tasks:
-            item = QListWidgetItem(task)
+            status, name = ('P', task)
+            if '|' in task:
+                status, name = task.split('|', 1)
+            label = name
+            if status == 'D':
+                label = f"✓ {name}"
+            elif status == 'C':
+                label = f"✕ {name}"
+            item = QListWidgetItem(label)
             self.task_list.addItem(item)
+
+    # --- Persistence helpers (shared state with CLI) ---
+    def load_tasks_file(self):
+        try:
+            if os.path.exists(self.TASKS_FILE):
+                with open(self.TASKS_FILE, 'r') as f:
+                    lines = [ln.strip() for ln in f.readlines() if ln.strip()]
+                self.tasks = []
+                for ln in lines:
+                    if '|' in ln:
+                        self.tasks.append(ln)
+                    else:
+                        self.tasks.append(f"P|{ln}")
+        except Exception:
+            pass
+
+    def save_tasks_file(self):
+        try:
+            os.makedirs(self.CONFIG_DIR, exist_ok=True)
+            with open(self.TASKS_FILE, 'w') as f:
+                for t in self.tasks:
+                    if not t:
+                        continue
+                    if '|' in t:
+                        f.write(t + '\n')
+                    else:
+                        f.write('P|' + t + '\n')
+        except Exception:
+            pass
+
+    def load_state_file(self):
+        try:
+            env = {}
+            if os.path.exists(self.STATE_FILE):
+                with open(self.STATE_FILE, 'r') as f:
+                    for line in f:
+                        line = line.strip()
+                        if '=' in line:
+                            k, v = line.split('=', 1)
+                            env[k] = v
+            mode = env.get('MODE', 'work')
+            if mode == 'work':
+                self.current_session = 'Work'
+            elif mode == 'short':
+                self.current_session = 'Short Break'
+            else:
+                self.current_session = 'Long Break'
+            try:
+                self.pomodoro_count = int(env.get('POMODORO_COUNT', '0'))
+            except Exception:
+                pass
+            try:
+                remaining = int(env.get('REMAINING', '0'))
+                if remaining > 0:
+                    self.remaining_time = remaining
+            except Exception:
+                pass
+            try:
+                self.active_task_index = int(env.get('ACTIVE_TASK_INDEX', '-1'))
+            except Exception:
+                self.active_task_index = -1
+        except Exception:
+            pass
+
+    def save_state_file(self):
+        try:
+            os.makedirs(self.CONFIG_DIR, exist_ok=True)
+            if self.current_session == 'Work':
+                mode = 'work'
+            elif self.current_session == 'Short Break':
+                mode = 'short'
+            else:
+                mode = 'long'
+            active_idx = self.task_list.currentRow() if hasattr(self, 'task_list') else self.active_task_index
+            active_idx = active_idx if active_idx is not None else -1
+            with open(self.STATE_FILE, 'w') as f:
+                f.write(f"MODE={mode}\n")
+                f.write(f"REMAINING={max(0, int(self.remaining_time))}\n")
+                f.write(f"ACTIVE_TASK_INDEX={int(active_idx)}\n")
+                f.write(f"POMODORO_COUNT={int(self.pomodoro_count)}\n")
+                f.write(f"ACTIVE={1 if self.timer_running else 0}\n")
+        except Exception:
+            pass
 
 
 def main():

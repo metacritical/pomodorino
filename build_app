@@ -68,6 +68,7 @@ pyinstaller \
   --name "$APP_NAME" \
   --icon "$ICON" \
   --add-data "$ICON:." \
+  --add-data "bin/pomo:bin" \
   "$ENTRY"
 
 echo "Build complete. Find the app under dist/$APP_NAME.app"
