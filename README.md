@@ -1,82 +1,46 @@
 # Pomodorino 🍅
 
-Pomodorino is a lightweight, terminal-based Pomodoro timer designed to boost your productivity using the Pomodoro Technique. This simple yet effective tool helps you manage your work sessions and breaks directly from your command line.
+Desktop Pomodoro timer built with Python + PyQt5 for macOS (works cross‑platform for notifications). Comes with a fast macOS .app bundle and a clean system‑theme UI with colorful Start/Pause/Resume/Reset buttons.
 
-## Features
+## Quick Start (macOS .app)
 
-- **Customizable Work and Break Intervals**: Set your own durations for work sessions and breaks.
-- **Pause and Resume**: Pause your session with 'p' and resume with 'p'.
-- **Quit Anytime**: Exit the timer using 'q' or the Escape key.
-- **Notifications**: Receive desktop notifications to alert you when it's time to work or take a break (supports macOS and Linux).
+- Build the app bundle:
+  - `bin/build_app`
+- Launch the app:
+  - `open dist/PomodoroTimer.app`
 
-## Installation
+Notes
+- The app runs with a menu‑bar tray icon. Close hides to tray; use the tray to Show or Quit.
+- No external dependencies required for the bundled app.
 
-Clone this repository to your local machine:
+## Cross‑Platform Notifications
 
-```sh
-git clone https://github.com/yourusername/pomodorino.git
-```
+- macOS: `osascript` notifications
+- Linux: `notify-send`
+- Windows: `win10toast`
 
-### Make the script executable:
+If a notifier is not available, the app logs a fallback message.
 
-```sh
-chmod +x pomo
+## Development
 
-```
+- Run the Python app directly:
+  - `python3 pomodoro_pyqt.py`
+- Build a dev bundle from spec:
+  - `pyinstaller "Pomodoro Timer.spec"`
 
-### Usage=
-Run the timer with:
+## Repo Layout
 
-```sh
-./pomo
+- `pomodoro_pyqt.py` — main PyQt app
+- `bin/build_app` — build script for macOS .app
+- `Pomodoro Timer.spec` — PyInstaller config (fast onedir bundle)
+- `old_archieve/` — older scripts (bash/ruby/AppleScript) kept for reference
 
-```
+## Git Ignore
 
-### During the timer, you can:
+- Build outputs are ignored: `build/`, `dist/`
+- Python caches: `__pycache__/`, `*.pyc`
+- macOS Finder files: `.DS_Store`
 
-    •	Pause: Press p to pause the timer.
-	•	Resume: Press p again to resume the timer.
-	•	Quit: Press q or the Escape key to exit the timer.
-    
-    
-### Customization
-
-You can customize the durations of the work sessions, short breaks, and long breaks by editing the variables at the top of the pomo script:
-
-# Pomodoro durations
-
-
-```sh
-POMODORO_DURATION=25  # Pomodoro work duration in minutes
-SHORT_BREAK=5         # Short break duration in minutes
-LONG_BREAK=15         # Long break duration in minutes
-POMODOROS_BEFORE_LONG_BREAK=4
-
-```
-
-### Notifications
-
-For macOS, the script uses osascript to display notifications. Ensure your system allows notifications from the terminal.
-
-For Linux, the script uses notify-send. Make sure notify-send is installed on your system:
-
-
-```sh
-sudo apt-get install libnotify-bin
-
-```
-
-### Contributing
-
-Feel free to fork this repository and submit pull requests. Any improvements or suggestions are welcome!
-
-#### License
-
-This project is licensed under the MIT License. See the [LICENSE](https://opensource.org/license/mit) link for details.
-
-### Acknowledgments
-
-	•	Inspired by the Pomodoro Technique developed by Francesco Cirillo.
-	•	Emoji icons from Twemoji.
+---
 
 Made with ❤️ by Pankaj Doharey
