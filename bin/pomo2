@@ -1,114 +1,308 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-# Pomodoro durations
-POMODORO_DURATION=25  # Pomodoro work duration in minutes
-SHORT_BREAK=5         # Short break duration in minutes
-LONG_BREAK=15         # Long break duration in minutes
-POMODOROS_BEFORE_LONG_BREAK=4  # Number of Pomodoros before a long break
-
+# --- Config & Paths ---
+APP_NAME="Pomodoro Timer"
 TOMATO="🍅"
-ICON_PATH="/path/to/icon.png"  # Update with the path to your icon if needed
+XDG_CONFIG_HOME_DEFAULT="$HOME/.config"
+CONFIG_DIR="${XDG_CONFIG_HOME:-$XDG_CONFIG_HOME_DEFAULT}/pomo"
+TASKS_FILE="$CONFIG_DIR/tasks.txt"
+STATE_FILE="$CONFIG_DIR/state"
+ICON_PATH="pomodoro.png"
 
-# Initialize variables
-TIME_REMAINING=$((POMODORO_DURATION * 60))
-PAUSED=0
-RUNNING=0
-pomodoro_count=0
+# Durations (minutes)
+POMODORO_DURATION=25
+SHORT_BREAK=5
+LONG_BREAK=15
+POMODOROS_BEFORE_LONG_BREAK=4
 
-# Function to display the timer
-display_timer() {
-    clear
-    local mins=$((TIME_REMAINING / 60))
-    local secs=$((TIME_REMAINING % 60))
-    echo -e "\n$message\n\nTime remaining: $(printf "%02d:%02d" $mins $secs)"
-    echo -e "\nPress 'p' to pause, 'r' to resume, 'q' to quit."
+mkdir -p "$CONFIG_DIR"
+
+# --- Tasks persistence ---
+# tasks.txt format: STATUS|TASK NAME
+# STATUS: P=pending, D=done, C=cancelled
+
+load_tasks() {
+  TASKS=()
+  if [[ -f "$TASKS_FILE" ]]; then
+    while IFS= read -r line; do
+      [[ -z "$line" ]] && continue
+      TASKS+=("$line")
+    done < "$TASKS_FILE"
+  fi
 }
 
-# Function to countdown
-countdown() {
-    local duration=$1
-    message=$2
-    TIME_REMAINING=$((duration * 60))
-    RUNNING=1
-
-    while [ $TIME_REMAINING -gt 0 ]; do
-        if [ $PAUSED -eq 1 ]; then
-            read -rsn1 key
-            if [ "$key" == "r" ]; then
-                PAUSED=0
-            elif [[ "$key" == $'\e' || "$key" == "q" ]]; then
-                echo "\nExiting..."
-                exit 0
-            fi
-            continue
-        fi
-
-        display_timer
-        read -rsn1 -t 1 key
-        if [ "$key" == "p" ]; then
-            PAUSED=1
-        elif [[ "$key" == $'\e' || "$key" == "q" ]]; then
-            echo "\nExiting..."
-            exit 0
-        fi
-        TIME_REMAINING=$((TIME_REMAINING - 1))
-    done
-    RUNNING=0
+save_tasks() {
+  : > "$TASKS_FILE"
+  for t in "${TASKS[@]:-}"; do
+    echo "$t" >> "$TASKS_FILE"
+  done
 }
 
-# Function to send notifications
-send_notification() {
-    local title=$1
-    local message=$2
+print_tasks() {
+  echo "\nTasks:"
+  local i=1
+  for t in "${TASKS[@]:-}"; do
+    local status=${t%%|*}
+    local name=${t#*|}
+    local marker="[ ]"
+    if [[ "$status" == "D" ]]; then marker="[✓]"; fi
+    if [[ "$status" == "C" ]]; then marker="[ ] cancelled:"; fi
+    printf "%2d. %s %s\n" "$i" "$marker" "$name"
+    ((i++))
+  done
+  [[ ${#TASKS[@]:-0} -eq 0 ]] && echo "(no tasks)"
+}
 
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        # macOS notification
-        osascript -e "display notification \"$message\" with title \"$title\" subtitle \"\" sound name \"default\""
-    elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
-        # Linux notification
-        notify-send -i "$ICON_PATH" "$title" "$message"
+add_tasks_interactive() {
+  while true; do
+    read -rp "Enter task name (blank to stop): " name || true
+    if [[ -z "$name" ]]; then
+      break
     fi
+    TASKS+=("P|$name")
+    save_tasks
+    read -rp "Add another? (y/N): " ans || true
+    [[ "$ans" =~ ^[Yy]$ ]] || break
+  done
 }
 
-# Main loop with a starting menu
-while true; do
+delete_task() {
+  print_tasks
+  read -rp "Enter task number to delete: " idx || return 0
+  if [[ "$idx" =~ ^[0-9]+$ ]] && (( idx>=1 && idx<=${#TASKS[@]} )); then
+    unset 'TASKS[idx-1]'
+    # compact array
+    TASKS=("${TASKS[@]}")
+    save_tasks
+    echo "Deleted."
+  else
+    echo "Invalid index."
+  fi
+}
+
+mark_done() {
+  print_tasks
+  read -rp "Enter task number to mark done: " idx || return 0
+  if [[ "$idx" =~ ^[0-9]+$ ]] && (( idx>=1 && idx<=${#TASKS[@]} )); then
+    local entry="${TASKS[idx-1]}"; local name=${entry#*|}
+    TASKS[idx-1]="D|$name"; save_tasks; echo "Marked done."
+  else
+    echo "Invalid index."
+  fi
+}
+
+mark_cancelled() {
+  print_tasks
+  read -rp "Enter task number to cancel: " idx || return 0
+  if [[ "$idx" =~ ^[0-9]+$ ]] && (( idx>=1 && idx<=${#TASKS[@]} )); then
+    local entry="${TASKS[idx-1]}"; local name=${entry#*|}
+    TASKS[idx-1]="C|$name"; save_tasks; echo "Cancelled."
+  else
+    echo "Invalid index."
+  fi
+}
+
+first_pending_index() {
+  local i
+  for ((i=0; i<${#TASKS[@]}; i++)); do
+    [[ "${TASKS[$i]%%|*}" == "P" ]] && { echo "$i"; return; }
+  done
+  echo -1
+}
+
+# --- Notifications ---
+notify() {
+  local title=$1 msg=$2
+  if [[ "$OSTYPE" == darwin* ]]; then
+    osascript -e "display notification \"$msg\" with title \"$title\""
+  elif [[ "$OSTYPE" == linux-gnu* ]]; then
+    command -v notify-send >/dev/null 2>&1 && notify-send -i "$ICON_PATH" "$title" "$msg" || true
+  fi
+}
+
+# --- Session state persistence ---
+# STATE_FILE format:
+# MODE=work|short|long
+# REMAINING=seconds
+# ACTIVE_TASK_INDEX=int
+# POMODORO_COUNT=int
+# ACTIVE=0|1
+
+save_state() {
+  cat > "$STATE_FILE" <<EOF
+MODE=$MODE
+REMAINING=$REMAINING
+ACTIVE_TASK_INDEX=$ACTIVE_TASK_INDEX
+POMODORO_COUNT=$POMODORO_COUNT
+ACTIVE=$ACTIVE
+EOF
+}
+
+load_state() {
+  if [[ -f "$STATE_FILE" ]]; then
+    # shellcheck disable=SC1090
+    source "$STATE_FILE" || true
+  fi
+}
+
+clear_state() {
+  ACTIVE=0
+  save_state
+}
+
+# --- Timer/Session ---
+format_mmss() { printf "%02d:%02d" $(( $1 / 60 )) $(( $1 % 60 )); }
+
+countdown_loop() {
+  ACTIVE=1; save_state
+  while (( REMAINING > 0 )); do
+    printf "\r%s - %s session - %s remaining" "$TOMATO" "$MODE_TITLE" "$(format_mmss "$REMAINING")"
+    read -rsn1 -t 1 key || true
+    if [[ "${key:-}" == "p" ]]; then
+      # pause
+      save_state
+      echo -e "\nPaused. Press 'r' to resume, 'q' to quit." >&2
+      while true; do
+        read -rsn1 k2
+        if [[ "$k2" == "r" ]]; then break; fi
+        if [[ "$k2" == $'\e' || "$k2" == "q" ]]; then echo; return 1; fi
+      done
+    elif [[ "${key:-}" == $'\e' || "${key:-}" == "q" ]]; then
+      echo
+      save_state
+      return 1
+    fi
+    REMAINING=$((REMAINING - 1))
+    save_state
+  done
+  echo
+  return 0
+}
+
+start_session() {
+  local duration=$1; MODE=$2; MODE_TITLE=$3
+  REMAINING=$((duration * 60))
+  ACTIVE=1
+  save_state
+  notify "$APP_NAME" "$MODE_TITLE started"
+  printf "%s - %s - %s remaining\n" "$TOMATO" "$MODE_TITLE" "$(format_mmss "$REMAINING")"
+  countdown_loop || return 1
+  ACTIVE=0; save_state
+  return 0
+}
+
+complete_work_flow() {
+  # mark active task done if valid
+  if (( ACTIVE_TASK_INDEX >= 0 && ACTIVE_TASK_INDEX < ${#TASKS[@]} )); then
+    local entry="${TASKS[$ACTIVE_TASK_INDEX]}"; local name=${entry#*|}
+    TASKS[$ACTIVE_TASK_INDEX]="D|$name"; save_tasks
+  fi
+  ((POMODORO_COUNT++))
+  save_state
+  # decide next break
+  if (( POMODORO_COUNT % POMODOROS_BEFORE_LONG_BREAK == 0 )); then
+    start_session "$LONG_BREAK" short "Long break" || return 1
+  else
+    start_session "$SHORT_BREAK" short "Short break" || return 1
+  fi
+}
+
+ensure_task_for_start() {
+  load_tasks
+  local pending_idx; pending_idx=$(first_pending_index)
+  if (( pending_idx == -1 )); then
+    echo "No tasks found. Add at least one task."
+    add_tasks_interactive
+    pending_idx=$(first_pending_index)
+    if (( pending_idx == -1 )); then
+      echo "No pending tasks to start."; return 1
+    fi
+  fi
+  ACTIVE_TASK_INDEX=$pending_idx
+  save_state
+  return 0
+}
+
+resume_session_if_any() {
+  load_state
+  if [[ "${ACTIVE:-0}" == "1" && ${REMAINING:-0} -gt 0 ]]; then
+    echo "Resume previous ${MODE_TITLE:-session}? (y/N): "
+    read -r ans
+    if [[ "$ans" =~ ^[Yy]$ ]]; then
+      MODE_TITLE=${MODE_TITLE:-Work}
+      countdown_loop || return 1
+      ACTIVE=0; save_state
+      return 0
+    fi
+  fi
+  return 1
+}
+
+# --- Menus ---
+tasks_menu() {
+  while true; do
     clear
-    echo -e "Pomodoro Timer $TOMATO\n"
-    echo "1) Start Pomodoro"
-    echo "2) Short Break"
-    echo "3) Long Break"
-    echo "4) Exit"
-    echo -n "Choose an option: "
-    read -rsn1 choice
-
-    case $choice in
-        1)
-            send_notification "Pomodoro Timer" "Work session started"
-            countdown $POMODORO_DURATION "Work session"
-            ((pomodoro_count++))
-            send_notification "Pomodoro Timer" "Pomodoro complete! Total: $TOMATO $pomodoro_count"
-            echo "Pomodoro complete! Total: $TOMATO $pomodoro_count"
-
-            if ((pomodoro_count % POMODOROS_BEFORE_LONG_BREAK == 0)); then
-                send_notification "Pomodoro Timer" "Long break started"
-                countdown $LONG_BREAK "Long break"
-            else
-                send_notification "Pomodoro Timer" "Short break started"
-                countdown $SHORT_BREAK "Short break"
-            fi
-            ;;
-        2)
-            send_notification "Pomodoro Timer" "Short break started"
-            countdown $SHORT_BREAK "Short break"
-            ;;
-        3)
-            send_notification "Pomodoro Timer" "Long break started"
-            countdown $LONG_BREAK "Long break"
-            ;;
-        4)
-            clear
-            echo "Exiting..."
-            exit 0
-            ;;
+    print_tasks
+    echo -e "\nTasks menu:\n 1) Add task\n 2) Mark done\n 3) Cancel task\n 4) Delete task\n 5) Back"
+    read -rp "Choose: " c || true
+    case "$c" in
+      1) add_tasks_interactive ;;
+      2) mark_done ;;
+      3) mark_cancelled ;;
+      4) delete_task ;;
+      5) break ;;
     esac
-done
+  done
+}
+
+main_menu() {
+  load_tasks; load_state
+  while true; do
+    clear
+    echo -e "$APP_NAME $TOMATO\n"
+    print_tasks
+    echo -e "\nMenu:\n 1) Start Pomodoro\n 2) Short Break\n 3) Long Break\n 4) Manage Tasks\n 5) Resume Session\n 6) Exit"
+    read -rp "Choose an option: " choice || true
+    case "$choice" in
+      1)
+        ensure_task_for_start || { read -rp "Press Enter..." _; continue; }
+        MODE_TITLE="Work session"; start_session "$POMODORO_DURATION" work "$MODE_TITLE" || true
+        if (( REMAINING==0 )); then complete_work_flow || true; fi
+        read -rp "Press Enter..." _
+        ;;
+      2)
+        MODE_TITLE="Short break"; start_session "$SHORT_BREAK" short "$MODE_TITLE" || true
+        read -rp "Press Enter..." _
+        ;;
+      3)
+        MODE_TITLE="Long break"; start_session "$LONG_BREAK" long "$MODE_TITLE" || true
+        read -rp "Press Enter..." _
+        ;;
+      4)
+        tasks_menu
+        ;;
+      5)
+        MODE_TITLE=${MODE_TITLE:-Work}
+        resume_session_if_any || { echo "No session to resume."; sleep 1; }
+        ;;
+      6)
+        echo "Goodbye!"; exit 0
+        ;;
+    esac
+  done
+}
+
+# Auto-resume prompt on startup
+load_state
+if [[ -f "$STATE_FILE" && "${ACTIVE:-0}" == "1" && ${REMAINING:-0} -gt 0 ]]; then
+  MODE_TITLE=${MODE_TITLE:-Work}
+  echo "Found paused session: $MODE_TITLE with $(format_mmss "$REMAINING") remaining. Resume? (y/N): "
+  read -r r
+  if [[ "$r" =~ ^[Yy]$ ]]; then
+    countdown_loop || true
+    ACTIVE=0; save_state
+  fi
+fi
+
+main_menu

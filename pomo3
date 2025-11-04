@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 
 POMODORO_DURATION=25
 SHORT_BREAK=5
